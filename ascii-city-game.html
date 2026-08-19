@@ -1,0 +1,398 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #0a0a0a;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        font-family: monospace;
+      }
+
+      .cabinet {
+        position: relative;
+        padding: 34px 28px 44px;
+        background: linear-gradient(160deg, #1b0f2e, #0d0618 60%);
+        border: 2px solid #2a1a44;
+        border-radius: 18px;
+        box-shadow:
+          0 0 0 4px #0a0a0a,
+          0 0 22px 4px rgba(255, 0, 200, 0.35),
+          0 0 46px 10px rgba(0, 220, 255, 0.15),
+          inset 0 0 30px rgba(0, 0, 0, 0.6);
+      }
+
+      .cabinet::before,
+      .cabinet::after,
+      .cabinet .rivet-tl,
+      .cabinet .rivet-tr {
+        content: '';
+        position: absolute;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, #8a8a9a, #2b2b38 70%);
+        box-shadow: 0 0 4px #000 inset;
+      }
+      .cabinet::before {
+        top: 10px;
+        left: 10px;
+      }
+      .cabinet::after {
+        top: 10px;
+        right: 10px;
+      }
+      .cabinet .rivet-tl {
+        bottom: 10px;
+        left: 10px;
+      }
+      .cabinet .rivet-tr {
+        bottom: 10px;
+        right: 10px;
+      }
+
+      h1.title {
+        margin: 0 0 18px;
+        text-align: center;
+        font-family: 'Press Start 2P', monospace;
+        font-size: 22px;
+        letter-spacing: 3px;
+        color: #fff;
+        text-shadow:
+          0 0 6px #ff2ee6,
+          0 0 16px #ff2ee6,
+          0 0 32px #7a1cff,
+          0 0 2px #fff;
+        animation: flicker 3.5s infinite;
+      }
+      @keyframes flicker {
+        0%,
+        96%,
+        100% {
+          opacity: 1;
+        }
+        97% {
+          opacity: 0.7;
+        }
+        98% {
+          opacity: 1;
+        }
+        99% {
+          opacity: 0.85;
+        }
+      }
+
+      .screen {
+        position: relative;
+        border: 3px solid #000;
+        border-radius: 4px;
+        box-shadow: 0 0 12px rgba(0, 220, 255, 0.4) inset;
+        overflow: hidden;
+        line-height: 0;
+      }
+      .screen::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: repeating-linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, 0) 0px,
+          rgba(0, 0, 0, 0) 2px,
+          rgba(0, 0, 0, 0.18) 3px
+        );
+        mix-blend-mode: multiply;
+      }
+
+      #hint {
+        margin-top: 14px;
+        text-align: center;
+        color: #8f7bbf;
+        font-size: 12px;
+        letter-spacing: 0.5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="cabinet">
+      <span class="rivet-tl"></span><span class="rivet-tr"></span>
+      <h1 class="title">ASCII RUSH</h1>
+      <div class="screen"><canvas id="c"></canvas></div>
+      <div id="hint">
+        Flèches / ZQSD pour bouger — attrape les $ , évite les voitures
+      </div>
+    </div>
+    <script>
+      const CELL = 14,
+        COLS = 60,
+        ROWS = 34,
+        BLOCK = 8
+      const canvas = document.getElementById('c')
+      canvas.width = COLS * CELL
+      canvas.height = ROWS * CELL
+      const ctx = canvas.getContext('2d')
+      ctx.font = `${CELL}px monospace`
+      ctx.textBaseline = 'top'
+
+      const RAMP = ' .:-=+*#%@'
+      const WIN_SCORE = 20,
+        MAX_LIVES = 3
+
+      const walkable = new Set()
+      const roadCells = []
+      const staticLayer = document.createElement('canvas')
+      staticLayer.width = canvas.width
+      staticLayer.height = canvas.height
+      const sctx = staticLayer.getContext('2d')
+      sctx.font = ctx.font
+      sctx.textBaseline = 'top'
+
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const onRoadX = x % BLOCK === 0,
+            onRoadY = y % BLOCK === 0
+          let ch, color
+          if (onRoadX && onRoadY) {
+            ch = '+'
+            color = '#777'
+            walkable.add(`${x},${y}`)
+            roadCells.push({ x, y })
+          } else if (onRoadX || onRoadY) {
+            ch = '='
+            color = '#555'
+            walkable.add(`${x},${y}`)
+            roadCells.push({ x, y })
+          } else if (x % BLOCK === 1 || y % BLOCK === 1) {
+            ch = '.'
+            color = '#444'
+            walkable.add(`${x},${y}`)
+          } else {
+            const seed = Math.floor(x / BLOCK) * 31 + Math.floor(y / BLOCK) * 17
+            const h = 3 + (seed % (RAMP.length - 4))
+            ch = RAMP[h]
+            color = `hsl(${200 + h * 8},40%,${20 + h * 4}%)`
+          }
+          sctx.fillStyle = color
+          sctx.fillText(ch, x * CELL, y * CELL)
+        }
+      }
+      const isWalkable = (x, y) => walkable.has(`${x},${y}`)
+
+      // Lignes horizontales et colonnes verticales complètes
+      const roadRows = []
+      for (let y = 0; y < ROWS; y += BLOCK) roadRows.push(y)
+      const roadCols = []
+      for (let x = 0; x < COLS; x += BLOCK) roadCols.push(x)
+
+      const player = { x: 1, y: 1 }
+      let score = 0,
+        lives = MAX_LIVES,
+        invuln = 0,
+        elapsed = 0,
+        status = 'playing' // 'playing' | 'over' | 'win'
+
+      const items = []
+      function spawnItem() {
+        let cell
+        do {
+          cell = roadCells[Math.floor(Math.random() * roadCells.length)]
+        } while (
+          items.some((i) => i.x === cell.x && i.y === cell.y) ||
+          (cell.x === player.x && cell.y === player.y)
+        )
+        items.push({ x: cell.x, y: cell.y })
+      }
+      for (let i = 0; i < 10; i++) spawnItem()
+
+      const cars = []
+      const CARS_PER_LANE = 6
+      roadRows.forEach((y) => {
+        for (let k = 0; k < CARS_PER_LANE; k++) {
+          cars.push({
+            axis: 'h',
+            x: Math.random() * COLS,
+            y,
+            dir: Math.random() < 0.5 ? 1 : -1,
+            speed: 14 + Math.random() * 8,
+          })
+        }
+      })
+      roadCols.forEach((x) => {
+        for (let k = 0; k < CARS_PER_LANE; k++) {
+          cars.push({
+            axis: 'v',
+            x,
+            y: Math.random() * ROWS,
+            dir: Math.random() < 0.5 ? 1 : -1,
+            speed: 14 + Math.random() * 8,
+          })
+        }
+      })
+
+      function resetPlayer() {
+        player.x = 1
+        player.y = 1
+        invuln = 1.2
+      }
+
+      function restart() {
+        score = 0
+        lives = MAX_LIVES
+        status = 'playing'
+        elapsed = 0
+        items.length = 0
+        for (let i = 0; i < 10; i++) spawnItem()
+        resetPlayer()
+      }
+
+      const MOVES = {
+        ArrowUp: [0, -1],
+        ArrowDown: [0, 1],
+        ArrowLeft: [-1, 0],
+        ArrowRight: [1, 0],
+        z: [0, -1],
+        s: [0, 1],
+        q: [-1, 0],
+        d: [1, 0],
+      }
+      window.addEventListener('keydown', (e) => {
+        if (status !== 'playing') {
+          if (e.key === 'Enter') restart()
+          return
+        }
+        const move = MOVES[e.key]
+        if (!move) return
+        e.preventDefault()
+        const nx = player.x + move[0],
+          ny = player.y + move[1]
+        if (
+          nx >= 0 &&
+          nx < COLS &&
+          ny >= 0 &&
+          ny < ROWS &&
+          isWalkable(nx, ny)
+        ) {
+          player.x = nx
+          player.y = ny
+          const hit = items.findIndex((i) => i.x === nx && i.y === ny)
+          if (hit !== -1) {
+            items.splice(hit, 1)
+            score++
+            if (score >= WIN_SCORE) status = 'win'
+            else spawnItem()
+          }
+        }
+      })
+
+      function formatTime(t) {
+        const m = Math.floor(t / 60),
+          s = (t % 60).toFixed(1).padStart(4, '0')
+        return `${m}:${s}`
+      }
+
+      let last = performance.now()
+      function loop(now) {
+        const dt = (now - last) / 1000
+        last = now
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(staticLayer, 0, 0)
+
+        if (status === 'playing') {
+          elapsed += dt
+          if (invuln > 0) invuln = Math.max(0, invuln - dt)
+
+          cars.forEach((car) => {
+            if (car.axis === 'h') {
+              car.x += car.speed * dt * car.dir
+              if (car.x < -1 || car.x > COLS) {
+                car.dir = Math.random() < 0.5 ? 1 : -1
+                car.speed = 14 + Math.random() * 8
+                car.x = car.dir > 0 ? -1 : COLS
+              }
+            } else {
+              car.y += car.speed * dt * car.dir
+              if (car.y < -1 || car.y > ROWS) {
+                car.dir = Math.random() < 0.5 ? 1 : -1
+                car.speed = 14 + Math.random() * 8
+                car.y = car.dir > 0 ? -1 : ROWS
+              }
+            }
+            const cx = Math.round(car.x),
+              cy = Math.round(car.y)
+            if (invuln <= 0 && cx === player.x && cy === player.y) {
+              lives--
+              invuln = 1.2
+              if (lives <= 0) status = 'over'
+            }
+          })
+        }
+
+        ctx.fillStyle = '#ffeb3b'
+        cars.forEach((car) => {
+          if (car.x < 0 || car.x > COLS - 1 || car.y < 0 || car.y > ROWS - 1)
+            return
+          const ch =
+            car.axis === 'h'
+              ? car.dir > 0
+                ? '>'
+                : '<'
+              : car.dir > 0
+                ? 'v'
+                : '^'
+          ctx.fillText(ch, Math.round(car.x) * CELL, Math.round(car.y) * CELL)
+        })
+
+        ctx.fillStyle = '#4fc3f7'
+        items.forEach((i) => ctx.fillText('$', i.x * CELL, i.y * CELL))
+
+        if (status !== 'playing' || Math.floor(invuln * 8) % 2 === 0) {
+          ctx.fillStyle = '#fff'
+          ctx.fillText('@', player.x * CELL, player.y * CELL)
+        }
+
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'
+        ctx.fillRect(0, 0, canvas.width, CELL + 6)
+        ctx.fillStyle = '#fff'
+        ctx.fillText(
+          `Score: ${score}/${WIN_SCORE}   Vies: ${'♥'.repeat(lives)}   Temps: ${formatTime(elapsed)}`,
+          6,
+          3,
+        )
+
+        if (status === 'over') {
+          ctx.fillStyle = 'rgba(0,0,0,0.7)'
+          ctx.fillRect(0, canvas.height / 2 - 20, canvas.width, 40)
+          ctx.fillStyle = '#f44336'
+          ctx.fillText(
+            'PERDU — Entrée pour recommencer',
+            canvas.width / 2 - 200,
+            canvas.height / 2 - 6,
+          )
+        } else if (status === 'win') {
+          ctx.fillStyle = 'rgba(0,0,0,0.7)'
+          ctx.fillRect(0, canvas.height / 2 - 20, canvas.width, 40)
+          ctx.fillStyle = '#4caf50'
+          ctx.fillText(
+            `GAGNÉ en ${formatTime(elapsed)} ! Entrée pour rejouer`,
+            canvas.width / 2 - 190,
+            canvas.height / 2 - 6,
+          )
+        }
+
+        requestAnimationFrame(loop)
+      }
+      requestAnimationFrame(loop)
+    </script>
+  </body>
+</html>
